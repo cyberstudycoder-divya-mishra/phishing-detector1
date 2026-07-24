@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mail Forensics Unit — Phishing Detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10141C;
+    --panel:#1A2130;
+    --panel-2:#212a3c;
+    --paper:#EFEAD9;
+    --paper-line:#C9C0A8;
+    --ink-text:#E8E6DE;
+    --ink-dim:#8891A3;
+    --amber:#E3A335;
+    --danger:#D6544A;
+    --safe:#4FA593;
+    --line:#333B4A;
+    --mono:'IBM Plex Mono', monospace;
+    --sans:'IBM Plex Sans', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--ink);color:var(--ink-text);font-family:var(--sans);}
+  body{min-height:100vh;padding:32px 16px 64px;}
+  .wrap{max-width:820px;margin:0 auto;}
+
+  /* ---- case bar ---- */
+  .case-bar{
+    display:flex;justify-content:space-between;align-items:baseline;
+    border-bottom:2px solid var(--line);
+    padding-bottom:14px;margin-bottom:28px;
+    font-family:var(--mono);
+  }
+  .case-bar .case-no{font-size:13px;color:var(--ink-dim);letter-spacing:.08em;}
+  .case-bar .unit{font-size:13px;font-weight:600;letter-spacing:.14em;color:var(--amber);text-transform:uppercase;}
+
+  h1.title{
+    font-family:var(--mono);font-weight:700;font-size:clamp(28px,5vw,40px);
+    letter-spacing:-0.01em;margin:0 0 6px;color:var(--ink-text);
+  }
+  p.sub{color:var(--ink-dim);margin:0 0 32px;font-size:15px;line-height:1.5;max-width:520px;}
+
+  /* ---- intake ---- */
+  .intake{
+    border:2px dashed var(--line);
+    border-radius:6px;
+    padding:48px 24px;
+    text-align:center;
+    transition:border-color .2s, background .2s;
+    cursor:pointer;
+    background:var(--panel);
+  }
+  .intake.drag{border-color:var(--amber);background:var(--panel-2);}
+  .intake .slot-label{
+    font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-dim);margin-bottom:14px;
+  }
+  .intake .slot-main{font-size:17px;margin-bottom:6px;}
+  .intake .slot-main strong{color:var(--amber);text-decoration:underline;text-underline-offset:3px;}
+  .intake .slot-sub{font-size:13px;color:var(--ink-dim);}
+  .intake input[type=file]{display:none;}
+  .file-chip{
+    display:none;margin-top:16px;font-family:var(--mono);font-size:13px;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:4px;
+    padding:8px 14px;color:var(--ink-text);
+  }
+
+  /* ---- status line ---- */
+  .status{
+    font-family:var(--mono);font-size:13px;color:var(--ink-dim);
+    margin-top:18px;display:none;align-items:center;gap:10px;
+  }
+  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);animation:pulse 1s infinite ease-in-out;}
+  @keyframes pulse{0%,100%{opacity:.3;}50%{opacity:1;}}
+  @media (prefers-reduced-motion: reduce){ .status .dot{animation:none;opacity:1;} }
+
+  /* ---- report ---- */
+  .report{margin-top:40px;}
+  .paper{
+    background:var(--paper);color:#232016;border-radius:4px;
+    padding:28px 26px;position:relative;overflow:hidden;
+  }
+  .paper + .paper{margin-top:18px;}
+  .paper .kicker{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:#6b6248;margin-bottom:14px;border-bottom:1px solid var(--paper-line);padding-bottom:8px;
+  }
+
+  /* verdict stamp */
+  .verdict-block{display:flex;align-items:center;gap:28px;flex-wrap:wrap;}
+  .dial{position:relative;width:132px;height:132px;flex:none;}
+  .dial svg{width:100%;height:100%;transform:rotate(-90deg);}
+  .dial .score{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;font-family:var(--mono);
+  }
+  .dial .score .num{font-size:30px;font-weight:700;line-height:1;}
+  .dial .score .lbl{font-size:9px;letter-spacing:.12em;color:#6b6248;margin-top:2px;text-transform:uppercase;}
+
+  .stamp{
+    font-family:var(--mono);font-weight:700;font-size:22px;letter-spacing:.04em;
+    text-transform:uppercase;border:4px solid currentColor;border-radius:8px;
+    padding:10px 18px;display:inline-block;transform:rotate(-5deg);
+    position:relative;
+  }
+  .stamp::before{
+    content:'';position:absolute;inset:-3px;border:1px solid currentColor;border-radius:9px;opacity:.5;
+  }
+  .stamp.safe{color:var(--safe);}
+  .stamp.caution{color:var(--amber);}
+  .stamp.danger{color:var(--danger);}
+
+  .verdict-copy{flex:1;min-width:200px;}
+  .verdict-copy .headline{font-family:var(--mono);font-weight:600;font-size:15px;margin-bottom:6px;}
+  .verdict-copy p{margin:0;font-size:14.5px;line-height:1.55;color:#3a3527;}
+
+  /* evidence log */
+  .evidence-item{
+    display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--paper-line);
+    align-items:flex-start;
+  }
+  .evidence-item:last-child{border-bottom:none;}
+  .tag-no{
+    font-family:var(--mono);font-size:12px;color:#6b6248;flex:none;width:34px;padding-top:2px;
+  }
+  .sev{
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;font-weight:700;
+    padding:2px 8px;border-radius:3px;flex:none;height:fit-content;text-transform:uppercase;
+  }
+  .sev.high{background:rgba(214,84,74,.15);color:#a8362d;}
+  .sev.med{background:rgba(227,163,53,.18);color:#9a6f1c;}
+  .sev.low{background:rgba(79,165,147,.15);color:#2e6d5f;}
+  .ev-body{flex:1;}
+  .ev-body .ev-tag{font-weight:600;font-size:14px;margin-bottom:2px;}
+  .ev-body .ev-detail{font-size:13.5px;color:#4a4534;line-height:1.5;}
+
+  /* header dump */
+  .hdump{font-family:var(--mono);font-size:12.5px;line-height:1.9;color:#3a3527;}
+  .hdump .hrow{display:flex;gap:8px;border-bottom:1px dotted var(--paper-line);padding:4px 0;}
+  .hdump .hkey{color:#6b6248;flex:none;width:110px;}
+  .hdump .hval{word-break:break-all;}
+  .hdump .hval.flagged{color:#a8362d;font-weight:600;}
+
+  .links-list{font-family:var(--mono);font-size:12.5px;}
+  .link-row{padding:8px 0;border-bottom:1px dotted var(--paper-line);}
+  .link-row:last-child{border-bottom:none;}
+  .link-row .disp{color:#3a3527;}
+  .link-row .arrow{color:#6b6248;margin:0 6px;}
+  .link-row .dest{color:#a8362d;word-break:break-all;}
+  .link-row.match .dest{color:#2e6d5f;}
+
+  .reset-btn{
+    font-family:var(--mono);font-size:12px;color:var(--ink-dim);background:none;border:1px solid var(--line);
+    padding:8px 16px;border-radius:4px;cursor:pointer;margin-top:24px;letter-spacing:.05em;
+  }
+  .reset-btn:hover{border-color:var(--amber);color:var(--amber);}
+  .reset-btn:focus-visible, .intake:focus-visible{outline:2px solid var(--amber);outline-offset:3px;}
+
+  footer{margin-top:40px;font-family:var(--mono);font-size:11px;color:var(--ink-dim);text-align:center;}
+
+  @media (max-width:520px){
+    .paper{padding:20px 16px;}
+    .verdict-block{gap:18px;}
+    .hdump .hkey{width:80px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="case-bar">
+    <span class="case-no" id="caseNo">CASE No. PENDING</span>
+    <span class="unit">Mail Forensics Unit</span>
+  </div>
+
+  <h1 class="title">Phishing Intake &amp; Analysis</h1>
+  <p class="sub">Upload a raw .eml file. The unit examines headers, sender identity, and links, then files a case report with a risk verdict.</p>
+
+  <div class="intake" id="intake" tabindex="0" role="button" aria-label="Upload .eml file">
+    <div class="slot-label">Evidence intake</div>
+    <div class="slot-main">Drop a <strong>.eml</strong> file here, or <strong>browse</strong></div>
+    <div class="slot-sub">Only the file itself is analyzed — nothing is stored after your session.</div>
+    <input type="file" id="fileInput" accept=".eml,message/rfc822">
+    <div class="file-chip" id="fileChip"></div>
+  </div>
+
+  <div class="status" id="status">
+    <span class="dot"></span>
+    <span id="statusText">Reading evidence…</span>
+  </div>
+
+  <div class="report" id="report" hidden></div>
+
+  <button class="reset-btn" id="resetBtn" hidden>↺ Start new case</button>
+
+  <footer>Analysis performed by Claude · This tool assists judgment, it does not replace it.</footer>
+</div>
+
+<script>
+// ── SET THIS AFTER YOU DEPLOY THE WORKER ────────────────────────────────
+// Paste your Cloudflare Worker URL here (see worker.js setup instructions).
+// Example: "https://mail-forensics-proxy.yourname.workers.dev"
+const ANALYSIS_ENDPOINT = "https://lucky-math-70fc.divya-25002137.workers.dev";
+// ─────────────────────────────────────────────────────────────────────
+
+const intake = document.getElementById('intake');
+const fileInput = document.getElementById('fileInput');
+const fileChip = document.getElementById('fileChip');
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('statusText');
+const reportEl = document.getElementById('report');
+const resetBtn = document.getElementById('resetBtn');
+const caseNoEl = document.getElementById('caseNo');
+
+function genCaseNo(){
+  const d = new Date();
+  const stamp = d.getFullYear().toString() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0') + '-' +
+    String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + String(d.getSeconds()).padStart(2,'0');
+  return 'CASE No. ' + stamp;
+}
+caseNoEl.textContent = genCaseNo();
+
+intake.addEventListener('click', () => fileInput.click());
+intake.addEventListener('keydown', e => { if(e.key==='Enter' || e.key===' '){ e.preventDefault(); fileInput.click(); }});
+['dragover','dragenter'].forEach(evt => intake.addEventListener(evt, e => { e.preventDefault(); intake.classList.add('drag'); }));
+['dragleave','drop'].forEach(evt => intake.addEventListener(evt, e => { e.preventDefault(); intake.classList.remove('drag'); }));
+intake.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if(f) handleFile(f);
+});
+fileInput.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if(f) handleFile(f);
+});
+resetBtn.addEventListener('click', () => {
+  reportEl.hidden = true;
+  reportEl.innerHTML = '';
+  resetBtn.hidden = true;
+  fileChip.style.display = 'none';
+  fileInput.value = '';
+  caseNoEl.textContent = genCaseNo();
+});
+
+function handleFile(file){
+  fileChip.textContent = '📄 ' + file.name + ' (' + Math.round(file.size/1024) + ' KB)';
+  fileChip.style.display = 'inline-block';
+  const reader = new FileReader();
+  reader.onload = () => runAnalysis(reader.result);
+  reader.onerror = () => showError('Could not read the file. Try re-exporting it as .eml.');
+  reader.readAsText(file);
+}
+
+function decodeQP(str){
+  return str.replace(/=\r?\n/g,'').replace(/=([A-Fa-f0-9]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex,16)));
+}
+
+function parseEml(raw){
+  const text = raw.replace(/\r\n/g,'\n');
+  const splitIdx = text.indexOf('\n\n');
+  const headerBlock = splitIdx !== -1 ? text.slice(0, splitIdx) : text;
+  const bodyBlock = splitIdx !== -1 ? text.slice(splitIdx+2) : '';
+  const unfolded = headerBlock.replace(/\n[ \t]+/g, ' ');
+  const lines = unfolded.split('\n').filter(Boolean);
+  const headers = {};
+  for(const line of lines){
+    const m = line.match(/^([^:]+):\s*(.*)$/);
+    if(m){
+      const key = m[1].trim();
+      const val = m[2].trim();
+      headers[key] = headers[key] ? headers[key] + '; ' + val : val;
+    }
+  }
+
+  // pull best text part out of a multipart body
+  let rawPart = bodyBlock;
+  const ct = headers['Content-Type'] || '';
+  const boundaryMatch = ct.match(/boundary="?([^";]+)"?/i);
+  if(boundaryMatch){
+    const boundary = boundaryMatch[1];
+    const parts = bodyBlock.split('--' + boundary);
+    let plain = '', html = '';
+    for(const part of parts){
+      if(!plain && /Content-Type:\s*text\/plain/i.test(part)){
+        plain = part.split(/\n\n/).slice(1).join('\n\n');
+      }
+      if(!html && /Content-Type:\s*text\/html/i.test(part)){
+        html = part.split(/\n\n/).slice(1).join('\n\n');
+      }
+    }
+    rawPart = html || plain || bodyBlock;
+  }
+  rawPart = decodeQP(rawPart);
+
+  // extract anchor tags: display text vs actual href
+  const anchors = [];
+  const anchorRe = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let am;
+  while((am = anchorRe.exec(rawPart)) !== null){
+    const href = am[1].trim();
+    const text = am[2].replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
+    if(href.startsWith('http')) anchors.push({ text: text || '(no visible text)', href });
+  }
+
+  // bare urls not already captured as anchors
+  const bareUrls = [...new Set((rawPart.match(/https?:\/\/[^\s"'<>)]+/g) || []))];
+
+  // plain-text preview
+  const preview = rawPart.replace(/<style[\s\S]*?<\/style>/gi,'')
+                          .replace(/<script[\s\S]*?<\/script>/gi,'')
+                          .replace(/<[^>]+>/g,' ')
+                          .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+                          .replace(/\s+/g,' ').trim().slice(0, 3000);
+
+  return { headers, anchors, bareUrls, preview };
+}
+
+function domainOf(url){
+  try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return url; }
+}
+
+async function runAnalysis(rawText){
+  reportEl.hidden = true;
+  reportEl.innerHTML = '';
+  resetBtn.hidden = true;
+  statusEl.style.display = 'flex';
+  statusText.textContent = 'Parsing headers and extracting links…';
+
+  let parsed;
+  try{
+    parsed = parseEml(rawText);
+  }catch(e){
+    showError('Could not parse this file as a standard .eml message.');
+    return;
+  }
+
+  statusText.textContent = 'Sending to analyst for review…';
+
+  const headerLines = Object.entries(parsed.headers)
+    .filter(([k]) => /^(From|To|Reply-To|Return-Path|Subject|Date|Message-ID|Received|Authentication-Results|DKIM-Signature)$/i.test(k))
+    .map(([k,v]) => k + ': ' + v).join('\n');
+
+  const linkLines = parsed.anchors.map(a => 'Displayed as "' + a.text + '" -> links to ' + a.href).join('\n')
+    || (parsed.bareUrls.length ? parsed.bareUrls.join('\n') : 'No links found.');
+
+  const userContent =
+`Analyze this email for phishing indicators. Here is the parsed data extracted from the uploaded .eml file:
+
+HEADERS:
+${headerLines || '(no relevant headers found)'}
+
+LINKS (as authored: displayed text -> actual destination):
+${linkLines}
+
+BODY TEXT PREVIEW:
+${parsed.preview || '(empty body)'}`;
+
+  const systemPrompt = `You are a phishing-email forensics analyst. You will be given headers, links, and body text extracted from an email. Look for: mismatched From/Reply-To/Return-Path domains, spoofed display names, urgency or threat language, requests for credentials/payment/personal info, mismatched link display text vs destination, shortened or unfamiliar link domains, generic greetings, poor grammar, and any other social engineering patterns.
+
+Respond with ONLY valid JSON, no markdown fences, no commentary outside the JSON, matching exactly this schema:
+{"risk_score": <integer 0-100>, "verdict": "CLEARED" | "SUSPICIOUS" | "PHISHING DETECTED", "evidence": [{"tag": "<short 2-5 word label>", "detail": "<one sentence explaining what was found and why it matters>", "severity": "LOW" | "MED" | "HIGH"}], "summary": "<2-3 sentence plain-language analyst note>"}
+If nothing suspicious is found, return an empty evidence array and a low risk_score with verdict "CLEARED". Order evidence from most to least severe.`;
+
+  if(!ANALYSIS_ENDPOINT){
+    showError("This site isn't connected to an analyst yet. Set ANALYSIS_ENDPOINT near the top of the script to your deployed Worker URL (see worker.js).");
+    return;
+  }
+
+  try{
+    const response = await fetch(ANALYSIS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system: systemPrompt,
+        messages: [{ role: "user", content: userContent }]
+      })
+    });
+    if(!response.ok){
+      throw new Error('Proxy returned status ' + response.status);
+    }
+    const data = await response.json();
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if(!textBlock) throw new Error('No response content');
+    let jsonStr = textBlock.text.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    const result = JSON.parse(jsonStr);
+    statusEl.style.display = 'none';
+    renderReport(result, parsed, headerLines);
+  }catch(e){
+    console.error(e);
+    showError('The analyst could not complete this review. Try again in a moment.');
+  }
+}
+
+function showError(msg){
+  statusEl.style.display = 'none';
+  reportEl.hidden = false;
+  reportEl.innerHTML = `<div class="paper"><div class="kicker">Analysis failed</div><p style="margin:0;font-size:14.5px;">${msg}</p></div>`;
+  resetBtn.hidden = false;
+}
+
+function verdictClass(v){
+  if(v === 'PHISHING DETECTED') return 'danger';
+  if(v === 'SUSPICIOUS') return 'caution';
+  return 'safe';
+}
+
+function dialSvg(score, cls){
+  const r = 54, c = 2*Math.PI*r;
+  const pct = Math.max(0, Math.min(100, score)) / 100;
+  const offset = c * (1 - pct);
+  const colorVar = cls === 'danger' ? 'var(--danger)' : cls === 'caution' ? 'var(--amber)' : 'var(--safe)';
+  return `<svg viewBox="0 0 132 132">
+    <circle cx="66" cy="66" r="${r}" fill="none" stroke="#d9d2bb" stroke-width="10"/>
+    <circle cx="66" cy="66" r="${r}" fill="none" stroke="${colorVar}" stroke-width="10"
+      stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${offset}"/>
+  </svg>`;
+}
+
+function renderReport(result, parsed, headerLines){
+  const cls = verdictClass(result.verdict);
+  const evidence = (result.evidence || []);
+
+  let evidenceHtml = evidence.length
+    ? evidence.map((e, i) => `
+      <div class="evidence-item">
+        <span class="tag-no">#${String(i+1).padStart(2,'0')}</span>
+        <span class="sev ${String(e.severity||'low').toLowerCase()}">${e.severity || 'LOW'}</span>
+        <div class="ev-body">
+          <div class="ev-tag">${escapeHtml(e.tag||'Flag')}</div>
+          <div class="ev-detail">${escapeHtml(e.detail||'')}</div>
+        </div>
+      </div>`).join('')
+    : `<p style="font-size:14px;color:#4a4534;margin:0;">No red flags logged for this message.</p>`;
+
+  let linksHtml = '';
+  if(parsed.anchors.length){
+    linksHtml = parsed.anchors.map(a => {
+      const disp = a.text.toLowerCase();
+      const destDomain = domainOf(a.href);
+      const looksLikeUrlText = /^(https?:\/\/|www\.)/i.test(a.text) || destDomain.includes(a.text.replace(/^www\./,''));
+      const match = looksLikeUrlText || disp.includes(destDomain.split('.')[0]);
+      return `<div class="link-row ${match ? 'match' : ''}">
+        <span class="disp">"${escapeHtml(a.text)}"</span><span class="arrow">&rarr;</span><span class="dest">${escapeHtml(a.href)}</span>
+      </div>`;
+    }).join('');
+  } else if(parsed.bareUrls.length){
+    linksHtml = parsed.bareUrls.map(u => `<div class="link-row match"><span class="dest">${escapeHtml(u)}</span></div>`).join('');
+  } else {
+    linksHtml = `<p style="font-size:13px;color:#6b6248;margin:0;">No links found in this message.</p>`;
+  }
+
+  reportEl.innerHTML = `
+    <div class="paper">
+      <div class="kicker">Verdict</div>
+      <div class="verdict-block">
+        <div class="dial">
+          ${dialSvg(result.risk_score, cls)}
+          <div class="score"><span class="num">${result.risk_score}</span><span class="lbl">risk / 100</span></div>
+        </div>
+        <div class="verdict-copy">
+          <div class="stamp ${cls}">${escapeHtml(result.verdict)}</div>
+        </div>
+      </div>
+      <p style="margin-top:18px;">${escapeHtml(result.summary || '')}</p>
+    </div>
+
+    <div class="paper">
+      <div class="kicker">Evidence log</div>
+      ${evidenceHtml}
+    </div>
+
+    <div class="paper">
+      <div class="kicker">Links examined</div>
+      <div class="links-list">${linksHtml}</div>
+    </div>
+
+    <div class="paper">
+      <div class="kicker">Headers on file</div>
+      <div class="hdump">${headerLines ? headerLines.split('\n').map(l => {
+        const [k, ...rest] = l.split(':');
+        return `<div class="hrow"><span class="hkey">${escapeHtml(k)}</span><span class="hval">${escapeHtml(rest.join(':').trim())}</span></div>`;
+      }).join('') : '<p style="font-size:13px;">No standard headers found.</p>'}</div>
+    </div>
+  `;
+  reportEl.hidden = false;
+  resetBtn.hidden = false;
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+</script>
+</body>
+</html>
