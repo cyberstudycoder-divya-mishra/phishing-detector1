@@ -23,6 +23,7 @@
 
 // Only allow requests from your own site(s). Add every domain you host this on.
 const ALLOWED_ORIGINS = [
+  "https://phishing-detector1.pages.dev",
   "https://divyamishradesign.xyz",
   "https://www.divyamishradesign.xyz",
   "http://localhost:8000",
